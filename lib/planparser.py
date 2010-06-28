@@ -32,6 +32,9 @@ from itertools import count, izip
 import logging
 log = logging.getLogger('mensaplan.parser')
 
+# wochentag um von korrektem locale unabhängig zu sein
+WEEKDAYS = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+
 class Meal:
 	'''Wrapper für eine Gericht. Enthält Name des Gerichtes, Typ und Preis (wenn vorhanden)
 	
@@ -269,7 +272,8 @@ def fill_meal_table(meals_table, days):
 		cells = row.getElementsByType(table.TableCell)
 
 		# erste zelle ist datum
-		cell_replace_text(cells[0], day.date.strftime("%A %d.%m.%Y"))
+		date_str = WEEKDAYS[day.date.weekday()] + " " + day.date.strftime("%d.%m.%Y")
+		cell_replace_text(cells[0], date_str)
 		# restlichen Zellen in reihenfolge
 		format_meal_cell(cells[1], day.meals[Meal.E])
 		format_meal_cell(cells[2], day.meals[Meal.H1])
