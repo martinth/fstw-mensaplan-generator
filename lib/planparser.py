@@ -168,14 +168,6 @@ def fill_meal_table(meals_table, days):
 		format_meal_cell(cells[4], day.meals[Meal.VEG])
 		format_meal_cell(cells[5], day.meals[Meal.B])
 		
-
-URI = '''http://www.uni-kiel.de/stwsh/seiten_essen/plan_mensa_luebeck.html'''
-from urllib import urlopen
-import sys
-from itertools import izip, count
-
-raw_data = urlopen(URI).read()
-
 class MensaplanParser:
 
 	def __init__(self, raw_data):
