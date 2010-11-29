@@ -20,7 +20,7 @@
 
 import urllib2
 import re
-from datetime import date
+from datetime import date, timedelta
 from time import strptime
 from BeautifulSoup import BeautifulSoup, BeautifulStoneSoup
 from decimal import Decimal
@@ -88,119 +88,6 @@ class Day:
 
 class ParserException(Exception):
 	pass
-
-class MensaplanParser:
-
-	def __init__(self, raw_data):
-		try:
-			self.raw_table = BeautifulStoneSoup(BeautifulSoup(raw_data).html.body.table.prettify(),
-										    convertEntities = BeautifulStoneSoup.HTML_ENTITIES)
-		except AttributeError:
-			# kann auftreten wenn die zurückgegebene seite nicht so aussschaut wie erwartet
-			msg = "Fehler beim vorverarbeiten der Daten. Vielleicht hat der Server einen Fehler zurückgegeben."
-			log.error(msg + "\nAusgabe des Servers:\n" + raw_data)
-			raise ParserException(msg)
-
-	def _pre_sanitize(self):
-		'''Räumt die rohe HTML-Seite ein wenig auf'''
-		# aufraeumen 1: die ueberschriften entfernen (ersten beiden trs)
-		header_rows = self.raw_table.findAll("tr")[0:2]
-		[row.extract() for row in header_rows]
-
-		# aufraeuman 2: werbung weg
-		advertise_tds = self.raw_table.findAll("td", attrs = {"colspan": "6"})
-		[td.parent.extract() for td in advertise_tds]
-		log.debug("Vorverarbeitung erfolgreich")
-
-
-	def extract(self):
-		'''Extrahiert die Daten und gibt eine Liste von Day-Objekten zurück'''
-
-		self._pre_sanitize()
-		data_trs = self.raw_table.findAll("tr")
-		days = []
-
-		def cleanup(instr):
-			'''Räumt Strings ein bischen auf'''
-			s = re.sub('\s{2,}', ' ', instr)
-			s = re.sub('- ', '-', s)
-			s = s.strip()
-			return s
-
-		# durch die verbleibenden trs wird in dreierschritten gelaufen, denn ein tag
-		# besteht aus je drei trs
-		for idx in range(0, 15, 3):
-			try:
-				raw_caf = data_trs[idx]
-				raw_meals = data_trs[idx + 1]
-				raw_prices = data_trs[idx + 2]
-
-				# Datum des Tages steht auch im ersten tr (bloed geschachtelt)
-				date_str = cleanup(' '.join(raw_caf.td.findAll(text = True)))
-
-				# date_str hat so ein formatformat "Fr 30.10.", daher schneiden wir 
-				# erst den tag raus und wandeln es dann um
-				date_str = date_str.split()[-1]
-				date_str = "%s%s" % (date_str, date.today().year)
-				dt = strptime(date_str, "%d.%m.%Y")
-				date_obj = date(dt[0], dt[1], dt[2])
-
-				day = Day(date_obj)
-
-				# das Cafeteria Spezial ist das letzte <span> mit "special" class
-				cafe = raw_caf.findAll("span", attrs = {"class": "special"})[-1].string
-				cafe = cleanup(cafe).strip("-")
-				#print cafe
-
-				day.meals[Meal.CAF] = Meal(Meal.CAF, cafe)
-
-				# die gerichte des tages stehen in eizelnen tds
-				meals = []
-				for td in raw_meals.findAll("td"):
-					# in den tds sind u.U. mehre text-nodes, daher werden diese entweder 
-					# zusammen gefasst, oder, falls nur eine vorhanden ist, diese genommen
-					raw_meal = td.findAll(text = True)
-					raw_meal = ' '.join(raw_meal)
-					raw_meal = cleanup(raw_meal)
-					raw_meal = re.sub('-[SRA]-$', '', raw_meal)
-					meals.append(raw_meal)
-
-				prices = []
-				for td in raw_prices.findAll("td"):
-					raw_price = td.findAll(text = True)
-					raw_price = ' '.join(raw_price)
-					raw_price = cleanup(raw_price)
-					matches = [Decimal(m.replace(',','.')) for m in re.findall('\d+,\d+', raw_price)]
-					try:
-						stud_price = matches[0]
-					except IndexError:
-						stud_price = None
-					prices.append(stud_price)
-
-				# weil wir die sachen in umgekehrter reihenfolge in der liste haben, drehen
-				# wir beide listen um
-				meals.reverse()
-				prices.reverse()
-
-				# der reihe nach (wie auf der homepage) aus den listen ziehen und in objekte stopfen
-				day.meals[Meal.E] = Meal(Meal.E, meals.pop(), prices.pop())      # eintopf
-				day.meals[Meal.H1] = Meal(Meal.H1, meals.pop(), prices.pop())     # hautpgericht 1
-				day.meals[Meal.H2] = Meal(Meal.H2, meals.pop(), prices.pop())     # hautpgereicht 2
-				day.meals[Meal.VEG] = Meal(Meal.VEG, meals.pop(), prices.pop())    # wegetarisch
-				day.meals[Meal.B] = Meal(Meal.B, meals.pop(), None)              # beilagen (ohne preis)
-
-				log.debug("Tag '%s' gelesen" % day)
-
-			except IndexError:
-				# kann auftreten, wenn der tag aus irgendeinem grund der mansplan 
-				# weniger spalten enthält als eigentlich da sein sollten
-				day.meals = None
-				print "FEHLER: TAG '%s' KONNTE NCHT EXTRAHIERT WERDEN - MANUELL EINGEBEN" % day
-			# zuletzt den tag samt gerichten abspeichern
-			finally:
-				days.append(day)
-
-		return days
 
 class MealfillerException(Exception):
 	pass
@@ -281,3 +168,83 @@ def fill_meal_table(meals_table, days):
 		format_meal_cell(cells[4], day.meals[Meal.VEG])
 		format_meal_cell(cells[5], day.meals[Meal.B])
 		
+
+URI = '''http://www.uni-kiel.de/stwsh/seiten_essen/plan_mensa_luebeck.html'''
+from urllib import urlopen
+import sys
+from itertools import izip, count
+
+raw_data = urlopen(URI).read()
+
+class MensaplanParser:
+
+	def __init__(self, raw_data):
+		try:
+			self.raw_table = BeautifulStoneSoup(BeautifulSoup(raw_data).find(id="essen").prettify(),
+												convertEntities = BeautifulStoneSoup.HTML_ENTITIES)
+		except AttributeError:
+			# kann auftreten wenn die zurückgegebene seite nicht so aussschaut wie erwartet
+			msg = "Fehler beim vorverarbeiten der Daten. Vielleicht hat der Server einen Fehler zurückgegeben."
+			log.error(msg + "\nAusgabe des Servers:\n" + raw_data)
+			raise ParserException(msg)
+
+	def extract(self):
+		'''Extrahiert die Daten und gibt eine Liste von Day-Objekten zurück'''
+
+		def cleanString(node):
+			"""Extrahiert den Text aus einer gegebene BeautifulSoup-Node und räumt ihn auf"""
+			s = ' '.join(node.findAll(text = True))
+			s = re.sub('\s{2,}', ' ', s)
+			s = re.sub('- ', '-', s).strip()
+			s = re.sub('-[SR/VA]+-$', '', s).strip()
+			s = re.sub('\(\d\)$', '', s).strip()
+			return s
+
+		def priceFromRaw(rawPrice):
+			"""Extrahiert den ersten Preis aus einem String und gibt ihn als Decimal zurück"""
+			matches = [Decimal(m.replace(',','.')) for m in re.findall('\d+,\d+', rawPrice)]
+			try:
+				return matches[0]
+			except IndexError:
+				return None
+
+		# alle TDs mit "schrift_gerichte" als Klasse enthalten die nötigen Daten
+		cells = self.raw_table.findAll('td', {"class": "schrift_gerichte"})
+		cells = [cleanString(node) for node in cells] 
+
+		# days enthält später eine Liste von Day-Objekten
+		days = []
+
+		# extrahieren des Anfangsdatums der Woche aus dem HTML
+		headerText = cleanString(self.raw_table.find("td", {"colspan": "5"}))
+		dayMonthStr = re.search("(\d+\.\d+\.)", headerText).groups()[0]
+		dateStr = "%s%s" % (dayMonthStr, date.today().year)
+		dt = strptime(dateStr, "%d.%m.%Y")
+		startDate = date(dt[0], dt[1], dt[2])
+
+		# Füllen von days mit noch leeren Day-Objekten
+		for dayString, offset in izip(WEEKDAYS[0:5], count()):
+			day = Day(startDate + timedelta(days=offset))
+			days.append(day)
+
+		# die Zellen für die Wokstation werden entfernt, da sie uns nicht interessieren
+		del(cells[40:50])
+		# die Cafetaria hat keine Preisangaben, deswegen fügen wir einen Dummystring ein
+		cells += ['Kein Preis']*5
+
+		# für jeden Gericht-Type holen wir uns 10 Felder, wobei die ersten 5 immer den Namen des Gerichts
+		# beinhalten und die letzten 5 den Preis
+		for idx, mealType in izip(range(0,60,10), (Meal.E, Meal.H1, Meal.VEG, Meal.H2, Meal.B, Meal.CAF)):
+
+			mealsForType = cells[idx:idx+10]
+			mealTexts = mealsForType[0:5]
+			rawPrices = mealsForType[5:]
+
+			# die Gerichte werden in die jeweiligen Day-Objekte eingefügt
+			for mealText, rawPrice, dayObj in izip(mealTexts, rawPrices, days):
+				price = priceFromRaw(rawPrice) 
+				dayObj.meals[mealType] = Meal(mealType, mealText, price)
+
+
+		return days
+				
