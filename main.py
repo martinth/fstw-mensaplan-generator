@@ -122,6 +122,9 @@ class Main(Frame):
 		self.msg("Lade Vorlage aus '%s'" % TEMPLATE)
 		odt_doc = load(TEMPLATE)
 
+		# schwierigkeitsgrade der sudokus (in umgekehrter reihenfolge
+		difficulty = ["normal", "easy", "normal", "easy"]
+
 		for t in odt_doc.getElementsByType(table.Table):
 			table_name = t.getAttribute("name")
 			if table_name == "Mensaplan":
@@ -129,7 +132,7 @@ class Main(Frame):
 				self.msg("Schreibe Mensaplan in Tabelle 'Mensaplan'")
 			
 			if table_name.startswith("Sudoku"):
-				s = MySudoku()
+				s = MySudoku(difficulty.pop())
 				fill_sudoku_table(t, s.sudoku)
 				self.msg("Schreibe Sudoku in Tabelle '%s'" % table_name)
 		

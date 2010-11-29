@@ -102,9 +102,9 @@ class SudokuFiller:
 class MySudoku(object):
 	'''Erzeugt ein zufälliges Sudoku samt Lösung'''
 
-	def __init__(self):
+	def __init__(self, difficulty):
 		# sudoku erzeugen
-		sudoku = Sudoku(Board(3))
+		sudoku = Sudoku(Board(3), difficulty)
 		sudoku.create()
 		board = sudoku.to_board()
 		self.sudoku = deepcopy(board.numbers)
